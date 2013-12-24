@@ -1,7 +1,7 @@
 wsclient
 ========
 
-A wrapper for go's [go.net/websocket](http://go.net/websocket)
+A wrapper for go's [websocket](https://code.google.com/p/go/)
 
 The project aims to simplify websocket handling in the spirit of socket.io.
 
