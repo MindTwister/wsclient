@@ -3,11 +3,12 @@ package wsclient
 import (
 	"code.google.com/p/go.net/websocket"
 	"encoding/json"
-	"net/http"
-	"reflect"
 	"errors"
 	"fmt"
+	"net/http"
+	"reflect"
 )
+
 const (
 	MSG_JOIN      = "join"
 	MSG_BROADCAST = "broadcast"
@@ -16,6 +17,10 @@ const (
 type JoinData struct {
 	Room string
 	Name string
+}
+
+type BroadcastData struct {
+	Room string
 }
 
 type Message struct {
@@ -29,30 +34,29 @@ type client struct {
 	err           chan error
 	errorHandlers []func(error)
 	name          string
-	rooms map[*Room]bool
+	rooms         map[*Room]bool
 }
 
 type Client interface {
 	AddErrorHandler(func(error))
 	Send(interface{})
-	Receive() (MsgType, []byte)
 	Name() string
 	SetName(string)
 	Join(*Room)
 	Leave(*Room)
 }
 
-func(c *client) Join(r *Room) {
+func (c *client) Join(r *Room) {
 	r.addClient(c)
 	c.rooms[r] = true
 }
 
-func(c *client) Leave(r *Room) {
+func (c *client) Leave(r *Room) {
 	r.removeClient(c)
-	delete(c.rooms,r)
+	delete(c.rooms, r)
 }
 
-func NewClient(name string, ws *websocket.Conn) Client {
+func newClient(name string, ws *websocket.Conn) Client {
 	c := new(client)
 	c.name = name
 	c.socket = ws
@@ -75,6 +79,7 @@ func (c *client) Name() string {
 	return c.name
 }
 
+// Send arbitrary data to the client, the data must be JSON serializable
 func (c *client) Send(data interface{}) {
 	err := websocket.JSON.Send(c.socket, data)
 	if err != nil {
@@ -82,7 +87,7 @@ func (c *client) Send(data interface{}) {
 	}
 }
 
-func (c *client) Receive() (MsgType, []byte) {
+func (c *client) receive() (MsgType, []byte) {
 	var byteData []byte
 	err := websocket.Message.Receive(c.socket, &byteData)
 	if err != nil {
@@ -98,7 +103,7 @@ func (c *client) AddErrorHandler(f func(error)) {
 }
 
 func connHandler(ws *websocket.Conn) {
-	var c Client = NewClient("", ws)
+	var c Client = newClient("", ws)
 	var room *Room
 	c.AddErrorHandler(func(err error) {
 		if room != nil {
@@ -106,7 +111,7 @@ func connHandler(ws *websocket.Conn) {
 		}
 	})
 	for {
-		msgType, byteData := c.Receive()
+		msgType, byteData := c.(*client).receive()
 		switch msgType {
 		case MSG_JOIN:
 			jd := new(JoinData)
@@ -114,10 +119,16 @@ func connHandler(ws *websocket.Conn) {
 			c.SetName(jd.Name)
 			room = GetRoom(jd.Room)
 			c.Join(room)
+		case MSG_BROADCAST:
+			bd := new(BroadcastData)
+			json.Unmarshal(byteData, bd)
+			data := make(map[string]interface{})
+			json.Unmarshal(byteData, &data)
+			GetRoom(bd.Room).Broadcast(data)
 		default:
-			f, ok := registeredFunctions[msgType]
+			fn, ok := registeredFunctions[msgType]
 			if ok {
-				f(c, byteData)
+				fn(c, byteData)
 			}
 		}
 	}
@@ -125,7 +136,14 @@ func connHandler(ws *websocket.Conn) {
 
 var registeredFunctions map[MsgType]func(Client, []byte) = make(map[MsgType]func(Client, []byte))
 
-func Register(msgType string, f interface{}) error {
+/*
+Register takes 2 parameters, a MsgType, and a function which takes 2 parameters, a Client interface and a struct.
+
+The registered function is called whenever the socket receives a message with a set Type field. eg. { Type : <MsgType>, ... }
+
+The struct itself does not have to include the Type field
+*/
+func Register(msgType MsgType, f interface{}) error {
 	fInfo := reflect.TypeOf(f)
 	if fInfo.Kind() != reflect.Func {
 		return errors.New("The second argument MUST be function")
@@ -133,7 +151,7 @@ func Register(msgType string, f interface{}) error {
 	if fInfo.NumIn() != 2 {
 		return errors.New("The second argument MUST be function with 2 arguments")
 	}
-	if fInfo.In(0) != reflect.TypeOf(NewClient).Out(0) {
+	if fInfo.In(0) != reflect.TypeOf(newClient).Out(0) {
 		return errors.New(fmt.Sprintf("The first argument to the function MUST implement Client"))
 	}
 	callBackType := fInfo.In(1)
@@ -149,6 +167,7 @@ func Register(msgType string, f interface{}) error {
 	return nil
 }
 
+// GetHandler returns a http.Handler that can be bound to a path using http.Handle, this handler takes care websocket handling
 func GetHandler() http.Handler {
 	return websocket.Handler(connHandler)
 }

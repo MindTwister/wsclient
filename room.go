@@ -11,6 +11,9 @@ type Room struct {
 	clients map[Client]bool
 }
 
+/*
+GetRoom returns a room with the given name, if the room does not exist it will be automatically created with no Clients.
+*/
 func GetRoom(name string) *Room {
 	lookupName := strings.ToLower(name)
 	room, ok := rooms[lookupName]

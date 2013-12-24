@@ -2,11 +2,11 @@ package wsclient
 
 import (
 	"code.google.com/p/go.net/websocket"
+	"fmt"
 	. "github.com/smartystreets/goconvey/convey"
 	"net/http"
 	"testing"
 	"time"
-	"fmt"
 )
 
 // In the following time.Sleep is used multiple times, this is in order for server messages to propagate properly before testing the assertions.
@@ -49,10 +49,10 @@ func TestRoomCanHaveUsers(t *testing.T) {
 	Convey("Given a room", t, func() {
 		room := GetRoom("Test Room 2")
 		numUsers := len(room.Clients())
-		user := NewClient("User 1", nil)
+		user := newClient("User 1", nil)
 		Convey("If we add a user", func() {
-			Convey("That users name can be retrieved", func(){
-				So(user.Name(),ShouldEqual, "User 1")
+			Convey("That users name can be retrieved", func() {
+				So(user.Name(), ShouldEqual, "User 1")
 			})
 			room.addClient(user)
 			Convey("The userlist length should be 1 greater than before", func() {
@@ -107,8 +107,8 @@ func TestSocketReceivesData(t *testing.T) {
 			websocket.JSON.Send(ws, joinMsg)
 			Convey("That user should receive messages on broadcast", func() {
 				time.Sleep(time.Millisecond)
-				testMsg := map[string]string{"Type": MSG_BROADCAST, "Message": "Hi"}
-				room.Broadcast(testMsg)
+				testMsg := map[string]string{"Type": MSG_BROADCAST, "Room": room.Name(), "Message": "Hi"}
+				websocket.JSON.Send(ws, testMsg)
 				rcvData := make(map[string]string)
 				// Set the deadline so we don't wait indefinitely for response
 				ws.SetReadDeadline(time.Now().Add(time.Millisecond * 50))
@@ -121,18 +121,18 @@ func TestSocketReceivesData(t *testing.T) {
 
 func TestRegisterForMessage(t *testing.T) {
 	ws, _ := websocket.Dial("ws://localhost"+wsPort+"/ws", "", "http://localhost"+wsPort+"/")
-	Convey("Given that the register function breaks on wrong arguments", t, func(){
+	Convey("Given that the register function breaks on wrong arguments", t, func() {
 		err := Register("throwaway", 8)
-		So(err, ShouldNotBeNil) 
-		err = Register("throwaway", func(){})
-		So(err, ShouldNotBeNil) 
-		err = Register("throwaway", func(c *Client){})
-		So(err, ShouldNotBeNil) 
-		err = Register("throwaway", func(c string, i int){})
-		So(err, ShouldNotBeNil) 
-		Convey("After registering for a specific type", func(){
+		So(err, ShouldNotBeNil)
+		err = Register("throwaway", func() {})
+		So(err, ShouldNotBeNil)
+		err = Register("throwaway", func(c *Client) {})
+		So(err, ShouldNotBeNil)
+		err = Register("throwaway", func(c string, i int) {})
+		So(err, ShouldNotBeNil)
+		Convey("After registering for a specific type", func() {
 			hasBeenCalledWithCorrectArguments := false
-			err := Register("vote", func(c Client, s Sample){
+			err := Register("vote", func(c Client, s Sample) {
 				if s.A == "TestString" && s.B == 42 {
 					hasBeenCalledWithCorrectArguments = true
 				} else {
@@ -140,11 +140,11 @@ func TestRegisterForMessage(t *testing.T) {
 				}
 			})
 			So(err, ShouldBeNil)
-			Convey("And sending a message to the server", func(){
-				websocket.JSON.Send(ws, map[string]interface{}{"Type":"vote","A":"TestString","B":42})
-				Convey("The callback should have been reached with the correct arguments", func(){
+			Convey("And sending a message to the server", func() {
+				websocket.JSON.Send(ws, map[string]interface{}{"Type": "vote", "A": "TestString", "B": 42})
+				Convey("The callback should have been reached with the correct arguments", func() {
 					time.Sleep(time.Millisecond)
-					So(hasBeenCalledWithCorrectArguments,ShouldEqual,true)
+					So(hasBeenCalledWithCorrectArguments, ShouldEqual, true)
 				})
 			})
 		})
